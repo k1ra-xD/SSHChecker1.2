@@ -1,0 +1,64 @@
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/rootLayout"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="24dp"
+    android:background="#FFFFFF">
+
+    <EditText
+        android:id="@+id/ipInput"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:minHeight="48dp"
+        android:paddingTop="12dp"
+        android:paddingBottom="12dp"
+        android:hint="IP роутера для пинга"
+        android:inputType="text" />
+
+    <Button
+        android:id="@+id/checkButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:minHeight="48dp"
+        android:layout_below="@id/ipInput"
+        android:layout_marginTop="16dp"
+        android:text="Проверить" />
+
+    <ProgressBar
+        android:id="@+id/progressBar"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_below="@id/checkButton"
+        android:layout_marginTop="12dp"
+        android:visibility="gone"
+        android:indeterminate="true" />
+
+    <TextView
+        android:id="@+id/statusTextView"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Статус"
+        android:textSize="16sp"
+        android:layout_below="@id/progressBar"
+        android:layout_marginTop="12dp" />
+
+    <TextView
+        android:id="@+id/externalIpText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Внешний IP:"
+        android:textSize="18sp"
+        android:layout_below="@id/statusTextView"
+        android:layout_marginTop="12dp" />
+
+    <ImageView
+        android:id="@+id/statusIcon"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_below="@id/externalIpText"
+        android:layout_marginTop="12dp"
+        android:visibility="gone" />
+
+</RelativeLayout>
