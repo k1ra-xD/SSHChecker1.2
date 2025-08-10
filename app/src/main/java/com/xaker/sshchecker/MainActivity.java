@@ -77,11 +77,13 @@ public class MainActivity extends AppCompatActivity {
                     session.connect(5000);
 
                     Channel channel = session.openChannel("exec");
-                    ((ChannelExec) channel).setCommand("ubus call network.interface.mob1s1a1 status");
+                    ChannelExec channelExec = (ChannelExec) channel;
+                    channelExec.setCommand("ip addr show wwan0 | grep 'inet ' | awk '{print $2}' | cut -d/ -f1");
 
-                    channel.setInputStream(null);
-                    InputStream in = channel.getInputStream();
-                    channel.connect();
+                    channelExec.setInputStream(null);
+                    InputStream in = channelExec.getInputStream();
+                    channelExec.connect();
+
 
                     byte[] tmp = new byte[1024];
                     StringBuilder output = new StringBuilder();
@@ -160,6 +162,11 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private class PingTask extends AsyncTask<String, String, Boolean> {
+
+        // Список портов для проверки
+        private final int[] portsToCheck = {80, 443, 22, 23, 8080};
+        private int openPort = -1; // сюда запишем, какой порт открылся
+
         @Override
         protected void onPreExecute() {
             statusTextView.setText("Пинг...");
@@ -171,8 +178,24 @@ public class MainActivity extends AppCompatActivity {
         protected Boolean doInBackground(String... params) {
             String ip = params[0];
             try {
+                // 1. Сначала ICMP ping
                 InetAddress inet = InetAddress.getByName(ip);
-                return inet.isReachable(2000);
+                if (inet.isReachable(2000)) {
+                    return true;
+                }
+
+                // 2. Перебираем TCP-порты
+                for (int port : portsToCheck) {
+                    try (java.net.Socket socket = new java.net.Socket()) {
+                        socket.connect(new java.net.InetSocketAddress(ip, port), 2000);
+                        openPort = port; // нашли открытый порт
+                        return true;
+                    } catch (Exception ignored) {
+                    }
+                }
+
+                return false; // ничего не открылось
+
             } catch (Exception e) {
                 return false;
             }
@@ -182,13 +205,21 @@ public class MainActivity extends AppCompatActivity {
         protected void onPostExecute(Boolean success) {
             progressBar.setVisibility(View.GONE);
             if (success) {
-                statusTextView.setText("Пинг успешен");
+                if (openPort != -1) {
+                    statusTextView.setText("Доступен по TCP порту " + openPort);
+                } else {
+                    statusTextView.setText("Пинг успешен");
+                }
                 statusIcon.setImageResource(R.drawable.ic_check);
             } else {
-                statusTextView.setText("Пинг неудачен");
+                statusTextView.setText("Маршрутизатор недоступен");
                 statusIcon.setImageResource(R.drawable.ic_cross);
             }
             statusIcon.setVisibility(View.VISIBLE);
         }
     }
 }
+
+
+
+
