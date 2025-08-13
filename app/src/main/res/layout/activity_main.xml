@@ -1,5 +1,4 @@
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/rootLayout"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -11,6 +10,8 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:minHeight="48dp"
+        android:layout_alignParentTop="true"
+        android:layout_alignParentStart="true"
         android:paddingTop="12dp"
         android:paddingBottom="12dp"
         android:hint="IP роутера для пинга"
@@ -53,11 +54,21 @@
         android:layout_below="@id/statusTextView"
         android:layout_marginTop="12dp" />
 
+    <!-- Новый TextView для локального IP -->
+    <TextView
+        android:id="@+id/localIpText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Локальный IP:"
+        android:textSize="18sp"
+        android:layout_below="@id/externalIpText"
+        android:layout_marginTop="8dp" />
+
     <ImageView
         android:id="@+id/statusIcon"
         android:layout_width="48dp"
         android:layout_height="48dp"
-        android:layout_below="@id/externalIpText"
+        android:layout_below="@id/localIpText"
         android:layout_marginTop="12dp"
         android:visibility="gone" />
 

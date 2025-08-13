@@ -16,7 +16,7 @@ public class MainActivity extends AppCompatActivity {
     private EditText ipInput;
     private Button checkButton;
     private ProgressBar progressBar;
-    private TextView statusTextView, externalIpText;
+    private TextView statusTextView, externalIpText, localIpText;
     private ImageView statusIcon;
 
     private final String sshHost = "192.168.1.1";
@@ -25,6 +25,7 @@ public class MainActivity extends AppCompatActivity {
 
     private boolean sshConnected = false;
     private String sshExternalIp = null;
+    private String sshLocalIp = null;
 
     private Handler retryHandler = new Handler();
     private Runnable retryRunnable;
@@ -42,6 +43,7 @@ public class MainActivity extends AppCompatActivity {
         progressBar = findViewById(R.id.progressBar);
         statusTextView = findViewById(R.id.statusTextView);
         externalIpText = findViewById(R.id.externalIpText);
+        localIpText = findViewById(R.id.localIpText);
         statusIcon = findViewById(R.id.statusIcon);
 
         new SSHConnectTask().execute();
@@ -56,17 +58,18 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    private class SSHConnectTask extends AsyncTask<Void, String, String> {
+    private class SSHConnectTask extends AsyncTask<Void, String, String[]> {
         @Override
         protected void onPreExecute() {
             statusTextView.setText("Подключение к SSH...");
             progressBar.setVisibility(View.VISIBLE);
             statusIcon.setVisibility(View.GONE);
             externalIpText.setText("Внешний IP:");
+            localIpText.setText("Локальный IP:");
         }
 
         @Override
-        protected String doInBackground(Void... voids) {
+        protected String[] doInBackground(Void... voids) {
             for (String password : sshPasswords) {
                 publishProgress("Пробуем пароль: " + password);
                 try {
@@ -76,45 +79,59 @@ public class MainActivity extends AppCompatActivity {
                     session.setConfig("StrictHostKeyChecking", "no");
                     session.connect(5000);
 
-                    Channel channel = session.openChannel("exec");
-                    ((ChannelExec) channel).setCommand("ubus call network.interface.mob1s1a1 status");
-
-                    channel.setInputStream(null);
-                    InputStream in = channel.getInputStream();
-                    channel.connect();
+                    // Внешний IP
+                    ChannelExec channelExec = (ChannelExec) session.openChannel("exec");
+                    channelExec.setCommand("ip addr show wwan0 | grep 'inet ' | awk '{print $2}' | cut -d/ -f1");
+                    channelExec.setInputStream(null);
+                    InputStream in = channelExec.getInputStream();
+                    channelExec.connect();
 
                     byte[] tmp = new byte[1024];
-                    StringBuilder output = new StringBuilder();
+                    StringBuilder externalOutput = new StringBuilder();
                     while (true) {
                         while (in.available() > 0) {
                             int i = in.read(tmp, 0, 1024);
                             if (i < 0) break;
-                            output.append(new String(tmp, 0, i));
+                            externalOutput.append(new String(tmp, 0, i));
                         }
-                        if (channel.isClosed()) break;
+                        if (channelExec.isClosed()) break;
                         Thread.sleep(100);
                     }
+                    channelExec.disconnect();
 
-                    channel.disconnect();
+                    // Локальный IP (usb0)
+                    channelExec = (ChannelExec) session.openChannel("exec");
+                    channelExec.setCommand("ip addr show usb0 | grep 'inet ' | awk '{print $2}' | cut -d/ -f1");
+                    channelExec.setInputStream(null);
+                    in = channelExec.getInputStream();
+                    channelExec.connect();
+
+                    StringBuilder localOutput = new StringBuilder();
+                    while (true) {
+                        while (in.available() > 0) {
+                            int i = in.read(tmp, 0, 1024);
+                            if (i < 0) break;
+                            localOutput.append(new String(tmp, 0, i));
+                        }
+                        if (channelExec.isClosed()) break;
+                        Thread.sleep(100);
+                    }
+                    channelExec.disconnect();
                     session.disconnect();
 
-                    String ipResult = output.toString().trim();
-                    if (ipResult.matches("\\b(?:\\d{1,3}\\.){3}\\d{1,3}\\b")) {
-                        return ipResult;
-                    } else {
-                        return "Ошибка: не удалось получить внешний IP";
-                    }
+                    String externalIp = externalOutput.toString().trim();
+                    String localIp = localOutput.toString().trim();
+
+                    return new String[]{externalIp, localIp};
 
                 } catch (JSchException e) {
-                    if (e.getMessage().toLowerCase().contains("auth fail")) {
-                        continue;
-                    }
-                    return "Ошибка SSH: " + e.getMessage();
+                    if (e.getMessage().toLowerCase().contains("auth fail")) continue;
+                    return new String[]{"Ошибка SSH: " + e.getMessage(), ""};
                 } catch (Exception e) {
-                    return "Ошибка: " + e.getMessage();
+                    return new String[]{"Ошибка: " + e.getMessage(), ""};
                 }
             }
-            return "Не удалось подключиться по SSH: все пароли не подошли";
+            return new String[]{"Не удалось подключиться по SSH: все пароли не подошли", ""};
         }
 
         @Override
@@ -123,27 +140,29 @@ public class MainActivity extends AppCompatActivity {
         }
 
         @Override
-        protected void onPostExecute(String result) {
+        protected void onPostExecute(String[] result) {
             progressBar.setVisibility(View.GONE);
-            if (result != null && !result.toLowerCase().contains("ошибка")) {
+            if (!result[0].toLowerCase().contains("ошибка") && !result[0].contains("Не удалось")) {
                 sshConnected = true;
-                sshExternalIp = result;
+                sshExternalIp = result[0];
+                sshLocalIp = result[1];
                 statusTextView.setText("SSH подключение успешно");
                 externalIpText.setText("Внешний IP роутера: " + sshExternalIp);
-                statusIcon.setImageResource(android.R.drawable.checkbox_on_background);
+                localIpText.setText("Локальный IP USB: " + sshLocalIp);
+                statusIcon.setImageResource(R.drawable.ic_check);
 
                 retryHandler.removeCallbacks(retryRunnable);
                 retryCount = 0;
             } else {
                 sshConnected = false;
                 sshExternalIp = null;
-                statusTextView.setText(result);
+                sshLocalIp = null;
+                statusTextView.setText(result[0]);
                 externalIpText.setText("Внешний IP:");
-                statusIcon.setImageResource(android.R.drawable.ic_delete);
+                localIpText.setText("Локальный IP:");
+                statusIcon.setImageResource(R.drawable.ic_cross);
 
-                if (retryCount < MAX_RETRIES) {
-                    startRetryLoop();
-                }
+                if (retryCount < MAX_RETRIES) startRetryLoop();
             }
             statusIcon.setVisibility(View.VISIBLE);
         }
@@ -160,6 +179,10 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private class PingTask extends AsyncTask<String, String, Boolean> {
+
+        private final int[] portsToCheck = {80, 443, 22, 23, 8080};
+        private int openPort = -1;
+
         @Override
         protected void onPreExecute() {
             statusTextView.setText("Пинг...");
@@ -172,7 +195,17 @@ public class MainActivity extends AppCompatActivity {
             String ip = params[0];
             try {
                 InetAddress inet = InetAddress.getByName(ip);
-                return inet.isReachable(2000);
+                if (inet.isReachable(2000)) return true;
+
+                for (int port : portsToCheck) {
+                    try (java.net.Socket socket = new java.net.Socket()) {
+                        socket.connect(new java.net.InetSocketAddress(ip, port), 2000);
+                        openPort = port;
+                        return true;
+                    } catch (Exception ignored) {}
+                }
+
+                return false;
             } catch (Exception e) {
                 return false;
             }
@@ -182,10 +215,11 @@ public class MainActivity extends AppCompatActivity {
         protected void onPostExecute(Boolean success) {
             progressBar.setVisibility(View.GONE);
             if (success) {
-                statusTextView.setText("Пинг успешен");
+                if (openPort != -1) statusTextView.setText("Доступен по TCP порту " + openPort);
+                else statusTextView.setText("Пинг успешен");
                 statusIcon.setImageResource(R.drawable.ic_check);
             } else {
-                statusTextView.setText("Пинг неудачен");
+                statusTextView.setText("Маршрутизатор недоступен");
                 statusIcon.setImageResource(R.drawable.ic_cross);
             }
             statusIcon.setVisibility(View.VISIBLE);
