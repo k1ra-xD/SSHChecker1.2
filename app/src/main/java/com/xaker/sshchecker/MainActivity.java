@@ -1,11 +1,14 @@
 package com.xaker.sshchecker;
 
+import android.view.View;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Handler;
-import android.view.View;
 import android.widget.*;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.view.GravityCompat;
+import androidx.drawerlayout.widget.DrawerLayout;
+import com.google.android.material.navigation.NavigationView;
 import com.jcraft.jsch.*;
 
 import java.io.InputStream;
@@ -17,15 +20,14 @@ public class MainActivity extends AppCompatActivity {
     private Button checkButton;
     private ProgressBar progressBar;
     private TextView statusTextView, externalIpText, localIpText;
-    private ImageView statusIcon;
+    private ImageView statusIcon, menuButton;
+
+    private DrawerLayout drawerLayout;
+    private NavigationView navigationView;
 
     private final String sshHost = "192.168.1.1";
     private final String sshUser = "root";
     private final String[] sshPasswords = {"Admin0101", "Admin012"};
-
-    private boolean sshConnected = false;
-    private String sshExternalIp = null;
-    private String sshLocalIp = null;
 
     private Handler retryHandler = new Handler();
     private Runnable retryRunnable;
@@ -45,6 +47,21 @@ public class MainActivity extends AppCompatActivity {
         externalIpText = findViewById(R.id.externalIpText);
         localIpText = findViewById(R.id.localIpText);
         statusIcon = findViewById(R.id.statusIcon);
+        menuButton = findViewById(R.id.menu_button);
+
+        drawerLayout = findViewById(R.id.drawer_layout);
+        navigationView = findViewById(R.id.nav_view);
+
+        menuButton.setOnClickListener(v -> drawerLayout.openDrawer(GravityCompat.START));
+
+        navigationView.setNavigationItemSelectedListener(item -> {
+            int id = item.getItemId();
+            if (id == R.id.nav_test) {
+                Toast.makeText(this, "Тестовый пункт нажат", Toast.LENGTH_SHORT).show();
+            }
+            drawerLayout.closeDrawer(GravityCompat.START);
+            return true;
+        });
 
         new SSHConnectTask().execute();
 
@@ -63,7 +80,7 @@ public class MainActivity extends AppCompatActivity {
         protected void onPreExecute() {
             statusTextView.setText("Подключение к SSH...");
             progressBar.setVisibility(View.VISIBLE);
-            statusIcon.setVisibility(View.GONE);
+            statusIcon.setVisibility(ImageView.GONE);
             externalIpText.setText("Внешний IP:");
             localIpText.setText("Локальный IP:");
         }
@@ -79,50 +96,11 @@ public class MainActivity extends AppCompatActivity {
                     session.setConfig("StrictHostKeyChecking", "no");
                     session.connect(5000);
 
-                    // Внешний IP
-                    ChannelExec channelExec = (ChannelExec) session.openChannel("exec");
-                    channelExec.setCommand("ip addr show wwan0 | grep 'inet ' | awk '{print $2}' | cut -d/ -f1");
-                    channelExec.setInputStream(null);
-                    InputStream in = channelExec.getInputStream();
-                    channelExec.connect();
+                    String externalIp = execCommand(session, "ip addr show wwan0 | grep 'inet ' | awk '{print $2}' | cut -d/ -f1");
+                    String localIp = execCommand(session, "ip addr show usb0 | grep 'inet ' | awk '{print $2}' | cut -d/ -f1");
 
-                    byte[] tmp = new byte[1024];
-                    StringBuilder externalOutput = new StringBuilder();
-                    while (true) {
-                        while (in.available() > 0) {
-                            int i = in.read(tmp, 0, 1024);
-                            if (i < 0) break;
-                            externalOutput.append(new String(tmp, 0, i));
-                        }
-                        if (channelExec.isClosed()) break;
-                        Thread.sleep(100);
-                    }
-                    channelExec.disconnect();
-
-                    // Локальный IP (usb0)
-                    channelExec = (ChannelExec) session.openChannel("exec");
-                    channelExec.setCommand("ip addr show usb0 | grep 'inet ' | awk '{print $2}' | cut -d/ -f1");
-                    channelExec.setInputStream(null);
-                    in = channelExec.getInputStream();
-                    channelExec.connect();
-
-                    StringBuilder localOutput = new StringBuilder();
-                    while (true) {
-                        while (in.available() > 0) {
-                            int i = in.read(tmp, 0, 1024);
-                            if (i < 0) break;
-                            localOutput.append(new String(tmp, 0, i));
-                        }
-                        if (channelExec.isClosed()) break;
-                        Thread.sleep(100);
-                    }
-                    channelExec.disconnect();
                     session.disconnect();
-
-                    String externalIp = externalOutput.toString().trim();
-                    String localIp = localOutput.toString().trim();
-
-                    return new String[]{externalIp, localIp};
+                    return new String[]{externalIp.trim(), localIp.trim()};
 
                 } catch (JSchException e) {
                     if (e.getMessage().toLowerCase().contains("auth fail")) continue;
@@ -134,6 +112,28 @@ public class MainActivity extends AppCompatActivity {
             return new String[]{"Не удалось подключиться по SSH: все пароли не подошли", ""};
         }
 
+        private String execCommand(Session session, String command) throws Exception {
+            ChannelExec channel = (ChannelExec) session.openChannel("exec");
+            channel.setCommand(command);
+            channel.setInputStream(null);
+            InputStream in = channel.getInputStream();
+            channel.connect();
+
+            byte[] tmp = new byte[1024];
+            StringBuilder output = new StringBuilder();
+            while (true) {
+                while (in.available() > 0) {
+                    int i = in.read(tmp, 0, 1024);
+                    if (i < 0) break;
+                    output.append(new String(tmp, 0, i));
+                }
+                if (channel.isClosed()) break;
+                Thread.sleep(100);
+            }
+            channel.disconnect();
+            return output.toString();
+        }
+
         @Override
         protected void onProgressUpdate(String... values) {
             statusTextView.setText(values[0]);
@@ -141,41 +141,17 @@ public class MainActivity extends AppCompatActivity {
 
         @Override
         protected void onPostExecute(String[] result) {
-            progressBar.setVisibility(View.GONE);
+            progressBar.setVisibility(ProgressBar.GONE);
             if (!result[0].toLowerCase().contains("ошибка") && !result[0].contains("Не удалось")) {
-                sshConnected = true;
-                sshExternalIp = result[0];
-                sshLocalIp = result[1];
-                statusTextView.setText("SSH подключение успешно");
-                externalIpText.setText("Внешний IP роутера: " + sshExternalIp);
-                localIpText.setText("Локальный IP USB: " + sshLocalIp);
+                externalIpText.setText("Внешний IP роутера: " + result[0]);
+                localIpText.setText("Локальный IP USB: " + result[1]);
                 statusIcon.setImageResource(R.drawable.ic_check);
-
-                retryHandler.removeCallbacks(retryRunnable);
-                retryCount = 0;
             } else {
-                sshConnected = false;
-                sshExternalIp = null;
-                sshLocalIp = null;
                 statusTextView.setText(result[0]);
-                externalIpText.setText("Внешний IP:");
-                localIpText.setText("Локальный IP:");
                 statusIcon.setImageResource(R.drawable.ic_cross);
-
-                if (retryCount < MAX_RETRIES) startRetryLoop();
             }
-            statusIcon.setVisibility(View.VISIBLE);
+            statusIcon.setVisibility(ImageView.VISIBLE);
         }
-    }
-
-    private void startRetryLoop() {
-        if (retryRunnable == null) {
-            retryRunnable = () -> {
-                retryCount++;
-                new SSHConnectTask().execute();
-            };
-        }
-        retryHandler.postDelayed(retryRunnable, RETRY_DELAY_MS);
     }
 
     private class PingTask extends AsyncTask<String, String, Boolean> {
@@ -186,8 +162,8 @@ public class MainActivity extends AppCompatActivity {
         @Override
         protected void onPreExecute() {
             statusTextView.setText("Пинг...");
-            progressBar.setVisibility(View.VISIBLE);
-            statusIcon.setVisibility(View.GONE);
+            progressBar.setVisibility(ProgressBar.VISIBLE);
+            statusIcon.setVisibility(ImageView.GONE);
         }
 
         @Override
@@ -213,16 +189,19 @@ public class MainActivity extends AppCompatActivity {
 
         @Override
         protected void onPostExecute(Boolean success) {
-            progressBar.setVisibility(View.GONE);
+            progressBar.setVisibility(ProgressBar.GONE);
             if (success) {
-                if (openPort != -1) statusTextView.setText("Доступен по TCP порту " + openPort);
-                else statusTextView.setText("Пинг успешен");
+                if (openPort != -1) {
+                    statusTextView.setText("Доступен по TCP порту " + openPort);
+                } else {
+                    statusTextView.setText("Пинг успешен");
+                }
                 statusIcon.setImageResource(R.drawable.ic_check);
             } else {
                 statusTextView.setText("Маршрутизатор недоступен");
                 statusIcon.setImageResource(R.drawable.ic_cross);
             }
-            statusIcon.setVisibility(View.VISIBLE);
+            statusIcon.setVisibility(ImageView.VISIBLE);
         }
     }
 }

@@ -1,5 +1,3 @@
 <resources>
-    <string name="app_name">Router IP Checker</string>
-    <string name="ip_hint">IP роутера 2 (для пинга)</string>
-    <string name="check_button">Проверить</string>
+
 </resources>
