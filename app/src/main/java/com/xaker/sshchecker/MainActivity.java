@@ -3,7 +3,6 @@ package com.xaker.sshchecker;
 import android.view.View;
 import android.os.AsyncTask;
 import android.os.Bundle;
-import android.os.Handler;
 import android.widget.*;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.view.GravityCompat;
@@ -12,14 +11,20 @@ import com.google.android.material.navigation.NavigationView;
 import com.jcraft.jsch.*;
 
 import java.io.InputStream;
-import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.Socket;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 public class MainActivity extends AppCompatActivity {
 
     private EditText ipInput;
     private Button checkButton;
     private ProgressBar progressBar;
-    private TextView statusTextView, externalIpText, localIpText;
+    private TextView statusTextView, externalIpText;
     private ImageView statusIcon, menuButton;
 
     private DrawerLayout drawerLayout;
@@ -29,23 +34,17 @@ public class MainActivity extends AppCompatActivity {
     private final String sshUser = "root";
     private final String[] sshPasswords = {"Admin0101", "Admin012"};
 
-    private Handler retryHandler = new Handler();
-    private Runnable retryRunnable;
-    private static final int RETRY_DELAY_MS = 5000;
-    private int retryCount = 0;
-    private static final int MAX_RETRIES = 5;
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
         ipInput = findViewById(R.id.ipInput);
+        ipInput.setText("192.168.43.61");
         checkButton = findViewById(R.id.checkButton);
         progressBar = findViewById(R.id.progressBar);
         statusTextView = findViewById(R.id.statusTextView);
         externalIpText = findViewById(R.id.externalIpText);
-        localIpText = findViewById(R.id.localIpText);
         statusIcon = findViewById(R.id.statusIcon);
         menuButton = findViewById(R.id.menu_button);
 
@@ -53,13 +52,24 @@ public class MainActivity extends AppCompatActivity {
         navigationView = findViewById(R.id.nav_view);
 
         menuButton.setOnClickListener(v -> drawerLayout.openDrawer(GravityCompat.START));
-
         navigationView.setNavigationItemSelectedListener(item -> {
             int id = item.getItemId();
-            if (id == R.id.nav_test) {
-                Toast.makeText(this, "Тестовый пункт нажат", Toast.LENGTH_SHORT).show();
+            if (id == R.id.nav_help) {
+                new androidx.appcompat.app.AlertDialog.Builder(this)
+                        .setTitle("Справка")
+                        .setMessage("Это приложение позволяет:\n\n" +
+                                "1. Подключаться к роутеру по SSH.\n" +
+                                "2. Проверять доступность IP-адреса.\n" +
+                                "3. Получать внешний IP роутера.\n\n" +
+                                "Как пользоваться:\n" +
+                                "- Введите IP в поле.\n" +
+                                "- Нажмите 'Проверить'.\n" +
+                                "- Результат отобразится в виде ✅ или ❌.\n" +
+                                "- IP-адрес узнается автоматически.")
+                        .setPositiveButton("ОК", null)
+                        .show();
             }
-            drawerLayout.closeDrawer(GravityCompat.START);
+            drawerLayout.closeDrawers();
             return true;
         });
 
@@ -75,41 +85,69 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    private class SSHConnectTask extends AsyncTask<Void, String, String[]> {
+    private class SSHConnectTask extends AsyncTask<Void, String, String> {
         @Override
         protected void onPreExecute() {
-            statusTextView.setText("Подключение к SSH...");
+            statusTextView.setText("Подключение к роутеру...");
             progressBar.setVisibility(View.VISIBLE);
             statusIcon.setVisibility(ImageView.GONE);
             externalIpText.setText("Внешний IP:");
-            localIpText.setText("Локальный IP:");
         }
 
         @Override
-        protected String[] doInBackground(Void... voids) {
-            for (String password : sshPasswords) {
-                publishProgress("Пробуем пароль: " + password);
-                try {
-                    JSch jsch = new JSch();
-                    Session session = jsch.getSession(sshUser, sshHost, 22);
-                    session.setPassword(password);
-                    session.setConfig("StrictHostKeyChecking", "no");
-                    session.connect(5000);
+        protected String doInBackground(Void... voids) {
+            int maxRetries = 3;
+            int attempt = 0;
 
-                    String externalIp = execCommand(session, "ip addr show wwan0 | grep 'inet ' | awk '{print $2}' | cut -d/ -f1");
-                    String localIp = execCommand(session, "ip addr show usb0 | grep 'inet ' | awk '{print $2}' | cut -d/ -f1");
+            while (attempt < maxRetries) {
+                attempt++;
+                for (String password : sshPasswords) {
+                    publishProgress("Попытка " + attempt + " | Пробуем SSH пароль: " + password);
+                    try {
+                        JSch jsch = new JSch();
+                        Session session = jsch.getSession(sshUser, sshHost, 22);
+                        session.setPassword(password);
+                        session.setConfig("StrictHostKeyChecking", "no");
+                        session.connect(5000);
 
-                    session.disconnect();
-                    return new String[]{externalIp.trim(), localIp.trim()};
+                        String ipResult = execCommand(session,
+                                "ip addr show mob1s1a1 | grep 'inet ' | awk '{print $2}' | cut -d/ -f1").trim();
 
-                } catch (JSchException e) {
-                    if (e.getMessage().toLowerCase().contains("auth fail")) continue;
-                    return new String[]{"Ошибка SSH: " + e.getMessage(), ""};
-                } catch (Exception e) {
-                    return new String[]{"Ошибка: " + e.getMessage(), ""};
+                        if (ipResult.isEmpty()) {
+                            ipResult = execCommand(session,
+                                    "ip addr show usb0 | grep 'inet ' | awk '{print $2}' | cut -d/ -f1").trim();
+                        }
+
+                        if (ipResult.isEmpty()) {
+                            ipResult = execCommand(session,
+                                    "ip addr show wan | grep 'inet ' | awk '{print $2}' | cut -d/ -f1").trim();
+                        }
+
+                        if (ipResult.isEmpty()) {
+                            ipResult = execCommand(session,
+                                    "ip addr show | grep 'inet ' | awk '{print $2}' | cut -d/ -f1 | " +
+                                            "grep -E '^(10\\.|192\\.168\\.|172\\.(1[6-9]|2[0-9]|3[01]))' | head -n 1").trim();
+                        }
+
+                        session.disconnect();
+
+                        if (!ipResult.isEmpty()) {
+                            return ipResult;
+                        }
+
+                    } catch (JSchException e) {
+                        if (e.getMessage().toLowerCase().contains("auth fail")) continue;
+                        if (attempt >= maxRetries) return "Ошибка SSH: " + e.getMessage();
+                    } catch (Exception e) {
+                        if (attempt >= maxRetries) return "Ошибка: " + e.getMessage();
+                    }
                 }
+
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException ignored) {}
             }
-            return new String[]{"Не удалось подключиться по SSH: все пароли не подошли", ""};
+            return "Не удалось получить IP после " + maxRetries + " попыток";
         }
 
         private String execCommand(Session session, String command) throws Exception {
@@ -140,14 +178,13 @@ public class MainActivity extends AppCompatActivity {
         }
 
         @Override
-        protected void onPostExecute(String[] result) {
+        protected void onPostExecute(String result) {
             progressBar.setVisibility(ProgressBar.GONE);
-            if (!result[0].toLowerCase().contains("ошибка") && !result[0].contains("Не удалось")) {
-                externalIpText.setText("Внешний IP роутера: " + result[0]);
-                localIpText.setText("Локальный IP USB: " + result[1]);
+            if (!result.toLowerCase().contains("ошибка") && !result.contains("Не удалось")) {
+                externalIpText.setText("Внешний IP роутера: " + result);
                 statusIcon.setImageResource(R.drawable.ic_check);
             } else {
-                statusTextView.setText(result[0]);
+                statusTextView.setText(result);
                 statusIcon.setImageResource(R.drawable.ic_cross);
             }
             statusIcon.setVisibility(ImageView.VISIBLE);
@@ -156,49 +193,76 @@ public class MainActivity extends AppCompatActivity {
 
     private class PingTask extends AsyncTask<String, String, Boolean> {
 
-        private final int[] portsToCheck = {80, 443, 22, 23, 8080};
-        private int openPort = -1;
+        private final int[] portsToCheck = {80, 443, 22, 23, 8080, 8443};
+        private final List<Integer> openPorts = new ArrayList<>();
+        private long pingTime = -1;
 
         @Override
         protected void onPreExecute() {
             statusTextView.setText("Пинг...");
-            progressBar.setVisibility(ProgressBar.VISIBLE);
-            statusIcon.setVisibility(ImageView.GONE);
+            progressBar.setVisibility(View.VISIBLE);
+            statusIcon.setVisibility(View.GONE);
         }
 
         @Override
         protected Boolean doInBackground(String... params) {
             String ip = params[0];
-            try {
-                InetAddress inet = InetAddress.getByName(ip);
-                if (inet.isReachable(2000)) return true;
+            boolean reachable = false;
 
-                for (int port : portsToCheck) {
-                    try (java.net.Socket socket = new java.net.Socket()) {
-                        socket.connect(new java.net.InetSocketAddress(ip, port), 2000);
-                        openPort = port;
-                        return true;
-                    } catch (Exception ignored) {}
+            try {
+                long start = System.currentTimeMillis();
+                Process process = Runtime.getRuntime().exec("/system/bin/ping -c 1 -W 2 " + ip);
+                int exitCode = process.waitFor();
+                long end = System.currentTimeMillis();
+
+                if (exitCode == 0) {
+                    pingTime = end - start;
+                    reachable = true;
                 }
 
-                return false;
+                ExecutorService executor = Executors.newFixedThreadPool(portsToCheck.length);
+                List<Future<Boolean>> futures = new ArrayList<>();
+
+                for (int port : portsToCheck) {
+                    futures.add(executor.submit(() -> {
+                        try (Socket socket = new Socket()) {
+                            socket.connect(new InetSocketAddress(ip, port), 1000);
+                            synchronized (openPorts) {
+                                openPorts.add(port);
+                            }
+                            return true;
+                        } catch (Exception ignored) {
+                            return false;
+                        }
+                    }));
+                }
+
+                for (Future<Boolean> f : futures) {
+                    if (f.get()) {
+                        reachable = true;
+                    }
+                }
+                executor.shutdownNow();
+
             } catch (Exception e) {
                 return false;
             }
+
+            return reachable;
         }
 
         @Override
         protected void onPostExecute(Boolean success) {
             progressBar.setVisibility(ProgressBar.GONE);
             if (success) {
-                if (openPort != -1) {
-                    statusTextView.setText("Доступен по TCP порту " + openPort);
+                if (pingTime > 0) {
+                    statusTextView.setText("Пинг успешен, время: " + pingTime + " мс");
                 } else {
                     statusTextView.setText("Пинг успешен");
                 }
                 statusIcon.setImageResource(R.drawable.ic_check);
             } else {
-                statusTextView.setText("Маршрутизатор недоступен");
+                statusTextView.setText("Хост недоступен");
                 statusIcon.setImageResource(R.drawable.ic_cross);
             }
             statusIcon.setVisibility(ImageView.VISIBLE);

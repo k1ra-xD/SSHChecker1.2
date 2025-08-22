@@ -5,102 +5,91 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <!-- Основной контент -->
-    <LinearLayout
+    <!-- Основное содержимое -->
+    <RelativeLayout
+        android:id="@+id/rootLayout"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:orientation="vertical">
+        android:background="#FFFFFF"
+        android:padding="24dp">
 
-        <!-- Toolbar -->
-        <androidx.appcompat.widget.Toolbar
-            android:id="@+id/toolbar"
+        <!-- Кнопка меню -->
+        <ImageButton
+            android:id="@+id/menu_button"
+            android:layout_width="37dp"
+            android:layout_height="42dp"
+            android:layout_alignParentStart="true"
+            android:layout_marginStart="6dp"
+            android:layout_marginBottom="16dp"
+            android:background="@android:color/transparent"
+            android:src="@drawable/baseline" />
+
+        <EditText
+            android:id="@+id/ipInput"
             android:layout_width="match_parent"
-            android:layout_height="?attr/actionBarSize"
-            android:background="#505050"
-            android:theme="@style/ThemeOverlay.AppCompat.Dark.ActionBar"
-            app:title="SSH Checker">
+            android:layout_height="wrap_content"
+            android:layout_below="@id/menu_button"
+            android:layout_marginTop="16dp"
+            android:hint="IP роутера для пинга"
+            android:inputType="text"
+            android:minHeight="48dp" />
 
-            <!-- Кнопка меню -->
-            <ImageView
-                android:id="@+id/menu_button"
-                android:layout_width="wrap_content"
-                android:layout_height="match_parent"
-                android:contentDescription="Меню"
-                android:padding="12dp"
-                android:src="@drawable/baseline" />
-        </androidx.appcompat.widget.Toolbar>
-
-        <!-- Твой контент -->
-        <RelativeLayout
-            android:id="@+id/rootLayout"
+        <!-- Новое пустое текстовое поле -->
+        <EditText
+            android:id="@+id/emptyInput"
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:background="#FFFFFF"
-            android:padding="24dp">
+            android:layout_height="wrap_content"
+            android:layout_below="@id/ipInput"
+            android:layout_marginTop="16dp"
+            android:hint="Пустое поле ввода"
+            android:inputType="text"
+            android:minHeight="48dp" />
 
-            <EditText
-                android:id="@+id/ipInput"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:hint="IP роутера для пинга"
-                android:inputType="text"
-                android:minHeight="48dp" />
+        <Button
+            android:id="@+id/checkButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_below="@id/emptyInput"
+            android:layout_marginTop="16dp"
+            android:minHeight="48dp"
+            android:text="Проверить" />
 
-            <Button
-                android:id="@+id/checkButton"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_below="@id/ipInput"
-                android:layout_marginTop="16dp"
-                android:minHeight="48dp"
-                android:text="Проверить" />
+        <ProgressBar
+            android:id="@+id/progressBar"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_below="@id/checkButton"
+            android:layout_marginTop="12dp"
+            android:indeterminate="true"
+            android:visibility="gone" />
 
-            <ProgressBar
-                android:id="@+id/progressBar"
-                style="?android:attr/progressBarStyleHorizontal"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_below="@id/checkButton"
-                android:layout_marginTop="12dp"
-                android:indeterminate="true"
-                android:visibility="gone" />
+        <TextView
+            android:id="@+id/statusTextView"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_below="@id/progressBar"
+            android:layout_marginTop="12dp"
+            android:text="Статус"
+            android:textSize="16sp" />
 
-            <TextView
-                android:id="@+id/statusTextView"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_below="@id/progressBar"
-                android:layout_marginTop="12dp"
-                android:text="Статус"
-                android:textSize="16sp" />
+        <TextView
+            android:id="@+id/externalIpText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_below="@id/statusTextView"
+            android:layout_marginTop="12dp"
+            android:text="Внешний IP:"
+            android:textSize="18sp" />
 
-            <TextView
-                android:id="@+id/externalIpText"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_below="@id/statusTextView"
-                android:layout_marginTop="12dp"
-                android:text="Внешний IP:"
-                android:textSize="18sp" />
-
-            <TextView
-                android:id="@+id/localIpText"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_below="@id/externalIpText"
-                android:layout_marginTop="8dp"
-                android:text="Локальный IP:"
-                android:textSize="18sp" />
-
-            <ImageView
-                android:id="@+id/statusIcon"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:layout_below="@id/localIpText"
-                android:layout_marginTop="12dp"
-                android:visibility="gone" />
-        </RelativeLayout>
-    </LinearLayout>
+        <ImageView
+            android:id="@+id/statusIcon"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_below="@id/externalIpText"
+            android:layout_marginTop="12dp"
+            android:visibility="gone" />
+    </RelativeLayout>
 
     <!-- Боковое меню -->
     <com.google.android.material.navigation.NavigationView
