@@ -194,7 +194,6 @@ public class MainActivity extends AppCompatActivity {
     private class PingTask extends AsyncTask<String, String, Boolean> {
 
         private final int[] portsToCheck = {80, 443, 22, 23, 8080, 8443};
-        private final List<Integer> openPorts = new ArrayList<>();
         private long pingTime = -1;
 
         @Override
@@ -227,9 +226,6 @@ public class MainActivity extends AppCompatActivity {
                     futures.add(executor.submit(() -> {
                         try (Socket socket = new Socket()) {
                             socket.connect(new InetSocketAddress(ip, port), 1000);
-                            synchronized (openPorts) {
-                                openPorts.add(port);
-                            }
                             return true;
                         } catch (Exception ignored) {
                             return false;
@@ -239,7 +235,7 @@ public class MainActivity extends AppCompatActivity {
 
                 for (Future<Boolean> f : futures) {
                     if (f.get()) {
-                        reachable = true;
+                        reachable = true; // хотя конкретный порт не сохраняем
                     }
                 }
                 executor.shutdownNow();
