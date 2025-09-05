@@ -2,14 +2,19 @@
 
     <item
         android:id="@+id/nav_home"
-        android:title="Главная" />
+        android:title="Главная"
+        android:icon="@android:drawable/ic_menu_view"
+        android:checkable="true"/>
 
     <item
         android:id="@+id/nav_help"
-        android:title="Справка" />
+        android:title="Справка"
+        android:icon="@android:drawable/ic_menu_help"
+        android:checkable="true"/>
 
     <item
         android:id="@+id/nav_about"
-        android:title="О приложении" />
-
+        android:title="О приложении"
+        android:icon="@android:drawable/ic_menu_info_details"
+        android:checkable="true"/>
 </menu>

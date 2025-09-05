@@ -1,6 +1,5 @@
 package com.xaker.sshchecker;
 
-import android.view.View;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.widget.*;
@@ -10,14 +9,9 @@ import androidx.drawerlayout.widget.DrawerLayout;
 import com.google.android.material.navigation.NavigationView;
 import com.jcraft.jsch.*;
 
+import java.io.BufferedReader;
 import java.io.InputStream;
-import java.net.InetSocketAddress;
-import java.net.Socket;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
+import java.io.InputStreamReader;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -33,6 +27,8 @@ public class MainActivity extends AppCompatActivity {
     private final String sshHost = "192.168.1.1";
     private final String sshUser = "root";
     private final String[] sshPasswords = {"Admin0101", "Admin012"};
+
+    private Session existingSession; // Хранение сессии для Ping
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -53,19 +49,17 @@ public class MainActivity extends AppCompatActivity {
 
         menuButton.setOnClickListener(v -> drawerLayout.openDrawer(GravityCompat.START));
         navigationView.setNavigationItemSelectedListener(item -> {
-            int id = item.getItemId();
-            if (id == R.id.nav_help) {
+            if (item.getItemId() == R.id.nav_help) {
                 new androidx.appcompat.app.AlertDialog.Builder(this)
                         .setTitle("Справка")
                         .setMessage("Это приложение позволяет:\n\n" +
                                 "1. Подключаться к роутеру по SSH.\n" +
-                                "2. Проверять доступность IP-адреса.\n" +
+                                "2. Проверять доступность IP-адреса через SSH.\n" +
                                 "3. Получать внешний IP роутера.\n\n" +
                                 "Как пользоваться:\n" +
-                                "- Введите IP в поле.\n" +
+                                "- IP вводится автоматически.\n" +
                                 "- Нажмите 'Проверить'.\n" +
-                                "- Результат отобразится в виде ✅ или ❌.\n" +
-                                "- IP-адрес узнается автоматически.")
+                                "- Результат отобразится в виде ✅ или ❌.")
                         .setPositiveButton("ОК", null)
                         .show();
             }
@@ -76,21 +70,26 @@ public class MainActivity extends AppCompatActivity {
         new SSHConnectTask().execute();
 
         checkButton.setOnClickListener(v -> {
-            String ipToPing = ipInput.getText().toString().trim();
-            if (ipToPing.isEmpty()) {
-                Toast.makeText(this, "Введите IP для проверки", Toast.LENGTH_SHORT).show();
-                return;
+            if (existingSession != null && existingSession.isConnected()) {
+                String ipToPing = ipInput.getText().toString().trim();
+                // 🟢 очищаем IP: оставляем только цифры и точки
+                ipToPing = ipToPing.replaceAll("[^0-9.]", "");
+                new PingSSHTask(existingSession).execute(ipToPing);
+            } else {
+                Toast.makeText(this, "SSH сессия не подключена", Toast.LENGTH_SHORT).show();
             }
-            new PingTask().execute(ipToPing);
         });
+
     }
 
+    // ================= SSH CONNECT TASK =================
     private class SSHConnectTask extends AsyncTask<Void, String, String> {
+
         @Override
         protected void onPreExecute() {
             statusTextView.setText("Подключение к роутеру...");
-            progressBar.setVisibility(View.VISIBLE);
-            statusIcon.setVisibility(ImageView.GONE);
+            progressBar.setVisibility(android.view.View.VISIBLE);
+            statusIcon.setVisibility(android.view.View.GONE);
             externalIpText.setText("Внешний IP:");
         }
 
@@ -110,18 +109,10 @@ public class MainActivity extends AppCompatActivity {
                         session.setConfig("StrictHostKeyChecking", "no");
                         session.connect(5000);
 
+                        existingSession = session; // Сохраняем сессию для Ping
+
                         String ipResult = execCommand(session,
-                                "ip addr show mob1s1a1 | grep 'inet ' | awk '{print $2}' | cut -d/ -f1").trim();
-
-                        if (ipResult.isEmpty()) {
-                            ipResult = execCommand(session,
-                                    "ip addr show usb0 | grep 'inet ' | awk '{print $2}' | cut -d/ -f1").trim();
-                        }
-
-                        if (ipResult.isEmpty()) {
-                            ipResult = execCommand(session,
-                                    "ip addr show wan | grep 'inet ' | awk '{print $2}' | cut -d/ -f1").trim();
-                        }
+                                "ip addr show wwan0 | grep 'inet ' | awk '{print $2}' | cut -d/ -f1").trim();
 
                         if (ipResult.isEmpty()) {
                             ipResult = execCommand(session,
@@ -129,23 +120,14 @@ public class MainActivity extends AppCompatActivity {
                                             "grep -E '^(10\\.|192\\.168\\.|172\\.(1[6-9]|2[0-9]|3[01]))' | head -n 1").trim();
                         }
 
-                        session.disconnect();
-
                         if (!ipResult.isEmpty()) {
                             return ipResult;
                         }
 
-                    } catch (JSchException e) {
-                        if (e.getMessage().toLowerCase().contains("auth fail")) continue;
-                        if (attempt >= maxRetries) return "Ошибка SSH: " + e.getMessage();
                     } catch (Exception e) {
-                        if (attempt >= maxRetries) return "Ошибка: " + e.getMessage();
+                        if (attempt >= maxRetries) return "Ошибка SSH: " + e.getMessage();
                     }
                 }
-
-                try {
-                    Thread.sleep(1000);
-                } catch (InterruptedException ignored) {}
             }
             return "Не удалось получить IP после " + maxRetries + " попыток";
         }
@@ -179,7 +161,7 @@ public class MainActivity extends AppCompatActivity {
 
         @Override
         protected void onPostExecute(String result) {
-            progressBar.setVisibility(ProgressBar.GONE);
+            progressBar.setVisibility(android.view.View.GONE);
             if (!result.toLowerCase().contains("ошибка") && !result.contains("Не удалось")) {
                 externalIpText.setText("Внешний IP роутера: " + result);
                 statusIcon.setImageResource(R.drawable.ic_check);
@@ -187,81 +169,112 @@ public class MainActivity extends AppCompatActivity {
                 statusTextView.setText(result);
                 statusIcon.setImageResource(R.drawable.ic_cross);
             }
-            statusIcon.setVisibility(ImageView.VISIBLE);
+            statusIcon.setVisibility(android.view.View.VISIBLE);
         }
     }
 
-    private class PingTask extends AsyncTask<String, String, Boolean> {
+    // ================= PING VIA SSH TASK =================
+    private class PingSSHTask extends AsyncTask<String, Void, String> {
 
-        private final int[] portsToCheck = {80, 443, 22, 23, 8080, 8443};
-        private long pingTime = -1;
+        private Session sshSession;
+        private boolean success = false; // для определения какой значок показать
+
+        public PingSSHTask(Session session) {
+            this.sshSession = session;
+        }
 
         @Override
         protected void onPreExecute() {
-            statusTextView.setText("Пинг...");
-            progressBar.setVisibility(View.VISIBLE);
-            statusIcon.setVisibility(View.GONE);
+            statusTextView.setText("Проверка доступности (TCP → ARP → Route)...");
+            progressBar.setVisibility(android.view.View.VISIBLE);
+            statusIcon.setVisibility(android.view.View.GONE); // скрываем иконку пока идёт проверка
         }
 
         @Override
-        protected Boolean doInBackground(String... params) {
-            String ip = params[0];
-            boolean reachable = false;
+        protected String doInBackground(String... params) {
+            if (sshSession == null || !sshSession.isConnected()) {
+                return "Ошибка: SSH не подключён";
+            }
 
+            String targetIp = params[0];
             try {
-                long start = System.currentTimeMillis();
-                Process process = Runtime.getRuntime().exec("/system/bin/ping -c 1 -W 2 " + ip);
-                int exitCode = process.waitFor();
-                long end = System.currentTimeMillis();
+                long start, end;
 
-                if (exitCode == 0) {
-                    pingTime = end - start;
-                    reachable = true;
+                // 1. TCP-пинг (порт 22 или 80)
+                start = System.currentTimeMillis();
+                String tcpResult = execCommand(sshSession,
+                        "nc -z -w2 " + targetIp + " 22 || nc -z -w2 " + targetIp + " 80 && echo OK || echo FAIL");
+                end = System.currentTimeMillis();
+                if (tcpResult.contains("OK")) {
+                    success = true;
+                    return "Пинг прошёл " + (end - start) + " мс";
                 }
 
-                ExecutorService executor = Executors.newFixedThreadPool(portsToCheck.length);
-                List<Future<Boolean>> futures = new ArrayList<>();
-
-                for (int port : portsToCheck) {
-                    futures.add(executor.submit(() -> {
-                        try (Socket socket = new Socket()) {
-                            socket.connect(new InetSocketAddress(ip, port), 1000);
-                            return true;
-                        } catch (Exception ignored) {
-                            return false;
-                        }
-                    }));
+                // 2. ARP-пинг
+                start = System.currentTimeMillis();
+                String arpResult = execCommand(sshSession,
+                        "arp -n | grep " + targetIp + " | awk '{print $3}'");
+                end = System.currentTimeMillis();
+                if (!arpResult.trim().isEmpty()) {
+                    success = true;
+                    return "Пинг прошёл " + (end - start) + " мс";
                 }
 
-                for (Future<Boolean> f : futures) {
-                    if (f.get()) {
-                        reachable = true; // хотя конкретный порт не сохраняем
-                    }
+                // 3. Проверка маршрута
+                start = System.currentTimeMillis();
+                String routeResult = execCommand(sshSession,
+                        "ip route get " + targetIp + " | head -n 1");
+                end = System.currentTimeMillis();
+                if (routeResult.contains(targetIp)) {
+                    success = true;
+                    return "Пинг прошёл " + (end - start) + " мс";
                 }
-                executor.shutdownNow();
+
+                return "Узел недоступен";
 
             } catch (Exception e) {
-                return false;
+                e.printStackTrace();
+                return "Ошибка: " + e.getMessage();
             }
+        }
 
-            return reachable;
+        private String execCommand(Session session, String command) throws Exception {
+            ChannelExec channel = (ChannelExec) session.openChannel("exec");
+            channel.setCommand(command);
+            channel.setInputStream(null);
+            InputStream in = channel.getInputStream();
+            channel.connect();
+
+            BufferedReader reader = new BufferedReader(new InputStreamReader(in));
+            StringBuilder output = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                output.append(line).append("\n");
+            }
+            channel.disconnect();
+            return output.toString();
         }
 
         @Override
-        protected void onPostExecute(Boolean success) {
-            progressBar.setVisibility(ProgressBar.GONE);
+        protected void onPostExecute(String result) {
+            progressBar.setVisibility(android.view.View.GONE);
+            statusTextView.setText(result);
+
+            statusIcon.setVisibility(android.view.View.VISIBLE);
             if (success) {
-                if (pingTime > 0) {
-                    statusTextView.setText("Пинг успешен, время: " + pingTime + " мс");
-                } else {
-                    statusTextView.setText("Пинг успешен");
-                }
-                statusIcon.setImageResource(R.drawable.ic_check);
+                statusIcon.setImageResource(R.drawable.ic_check); // зелёная галочка
             } else {
-                statusTextView.setText("Хост недоступен");
-                statusIcon.setImageResource(R.drawable.ic_cross);
+                statusIcon.setImageResource(R.drawable.ic_cross); // красный крестик
             }
-            statusIcon.setVisibility(ImageView.VISIBLE);
         }
     }
+
+
+
+
+
+
+
+
+
 }
